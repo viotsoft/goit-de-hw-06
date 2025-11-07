@@ -24,48 +24,63 @@ def create_producer():
         value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
 
-def generate_sensor_data(sensor_id):
+def generate_sensor_data(sensor_id, trigger_alerts=False):
     """Генерація даних сенсора"""
+    if trigger_alerts:
+        # Генеруємо дані, які викликають алерти
+        # TEMP_HIGH: temperature_min=25,temperature_max=35 → генеруємо 26-34
+        # TEMP_LOW: temperature_min=15,temperature_max=25 → генеруємо 16-24  
+        # HUMIDITY_HIGH: humidity_min=40,humidity_max=50 → генеруємо 41-49
+        # HUMIDITY_LOW: humidity_min=20,humidity_max=30 → генеруємо 21-29
+        
+        temperature = random.choice([18, 22, 28, 32])  # Значення що викликають алерти
+        humidity = random.choice([25, 35, 45, 48])     # Значення що викликають алерти
+    else:
+        temperature = random.randint(20, 35)
+        humidity = random.randint(30, 60)
+    
     return {
         "sensor_id": sensor_id,
         "timestamp": str(int(time.time())),
-        "temperature": random.randint(20, 35),  # Температура між 20-35
-        "humidity": random.randint(30, 60)      # Вологість між 30-60%
+        "temperature": temperature,
+        "humidity": humidity
     }
 
 def main():
-    print("🚀 Starting sensor data generator...")
+    print("🚀 Starting sensor data generator with ALERT triggers...")
     
     try:
         producer = create_producer()
         print("✅ Connected to Kafka successfully")
         
         topic = "building_sensors_greenmoon"
-        sensor_count = 5  # Кількість сенсорів
-        messages_per_sensor = 10  # Повідомлень на сенсор
+        sensor_count = 3
+        messages_per_sensor = 20
         
         total_messages = sensor_count * messages_per_sensor
         print(f"📊 Generating {total_messages} messages from {sensor_count} sensors...")
+        print("💡 Generating data that will trigger alerts...")
         
         for sensor_id in range(1, sensor_count + 1):
             print(f"📡 Sensor {sensor_id}: Generating {messages_per_sensor} messages...")
             
             for i in range(messages_per_sensor):
-                data = generate_sensor_data(sensor_id)
+                # Кожне 3-тє повідомлення генерує дані для алертів
+                trigger_alert = (i % 3 == 0)
+                data = generate_sensor_data(sensor_id, trigger_alert)
                 
-                # Відправка повідомлення
                 producer.send(topic, value=data)
                 
-                print(f"  Message {i+1}: temp={data['temperature']}°C, humidity={data['humidity']}%")
+                alert_indicator = "🚨" if trigger_alert else "  "
+                print(f"  {alert_indicator} Message {i+1}: temp={data['temperature']}°C, humidity={data['humidity']}%")
                 
-                # Невелика затримка між повідомленнями
-                time.sleep(0.5)
+                time.sleep(1)  # 1 секунда між повідомленнями
             
             print(f"✅ Sensor {sensor_id} completed")
         
-        # Чекаємо на відправку всіх повідомлень
         producer.flush()
-        print(f"🎉 All {total_messages} messages sent successfully to topic '{topic}'")
+        print(f"🎉 All {total_messages} messages sent successfully!")
+        print("🔔 Alerts should appear in building_alerts_greenmoon topic")
         
     except Exception as e:
         print(f"❌ Error: {e}")

@@ -96,35 +96,68 @@ try:
             col("avg_humidity"),
             col("message_count"),
             col("code"),
-            col("message")
+            col("message"),
+            current_timestamp().alias("alert_timestamp")
         )
     
-    print("🚀 Starting streaming query...")
+    print("🚀 Starting streaming queries...")
     
-    # Запускаємо потік
-    query = alerts \
+    # Запускаємо потік для виводу в консоль
+    console_query = alerts \
         .writeStream \
         .outputMode("update") \
         .format("console") \
         .option("truncate", "false") \
         .option("numRows", 10) \
-        .option("checkpointLocation", "/tmp/spark-kafka-checkpoint") \
+        .option("checkpointLocation", "/tmp/spark-kafka-checkpoint-console") \
         .start()
     
-    print("✅ Stream started successfully!")
-    print("📊 Waiting for messages from Kafka...")
+    # Підготовка даних для запису в Kafka
+    kafka_output = alerts.select(
+        col("code").alias("key"),
+        to_json(
+            struct(
+                col("window_start"),
+                col("window_end"), 
+                col("avg_temp"),
+                col("avg_humidity"),
+                col("message_count"),
+                col("code"),
+                col("message"),
+                col("alert_timestamp")
+            )
+        ).alias("value")
+    )
+    
+    # Запис в Kafka
+    kafka_query = kafka_output \
+        .writeStream \
+        .outputMode("update") \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", "77.81.230.104:9092") \
+        .option("kafka.security.protocol", "SASL_PLAINTEXT") \
+        .option("kafka.sasl.mechanism", "PLAIN") \
+        .option("kafka.sasl.jaas.config", 
+                'org.apache.kafka.common.security.plain.PlainLoginModule required '
+                'username="admin" password="VawEzo1ikLtrA8Ug8THa";') \
+        .option("topic", "building_alerts_greenmoon") \
+        .option("checkpointLocation", "/tmp/kafka-output-checkpoint") \
+        .start()
+    
+    print("✅ Both streams started successfully!")
+    print("📊 Console output and Kafka writing active")
+    print("📨 Alerts being written to: building_alerts_greenmoon")
     print("💡 Make sure generator.py is running in another terminal")
     print("⏹️  Press Ctrl+C to stop")
     
     # Чекаємо поки потік активний і ми не отримали сигнал зупинки
-    while is_running and query.isActive:
+    while is_running and (console_query.isActive or kafka_query.isActive):
         time.sleep(1)
-        status = query.status
-        if status['isDataAvailable']:
-            print("📨 Data is being processed...")
+        status = console_query.status
     
-    print("🛑 Stopping stream...")
-    query.stop()
+    print("🛑 Stopping streams...")
+    console_query.stop()
+    kafka_query.stop()
     
 except Exception as e:
     print(f"❌ Error: {e}")
